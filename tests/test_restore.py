@@ -9,6 +9,7 @@ def test_restore_defaults(recorder):
     wmi = recorder()
     assert restore.restore(copy.deepcopy(state.DEFAULTS), wmi) == []
     assert wmi.calls == [
+        ("set_fan_auto",),
         ("set_zone_color", 0, 0x0000C8, 100),
         ("set_zone_color", 1, 0x0000C8, 100),
         ("set_zone_color", 2, 0x0000C8, 100),
@@ -29,7 +30,7 @@ def test_restore_profile_and_charge_limit(recorder):
 
 def test_restore_collects_errors(recorder):
     errors = restore.restore(copy.deepcopy(state.DEFAULTS), recorder(error="boom"))
-    assert errors == ["boom"] * 5
+    assert errors == ["boom"] * 6
 
 
 def test_restore_flag_runs_without_gui(monkeypatch, capsys):
