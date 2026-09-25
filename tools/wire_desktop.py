@@ -48,7 +48,11 @@ def main(argv):
             print(f"skip (missing): {path}")
             continue
         text = path.read_text()
-        new = edit(text)
+        try:
+            new = edit(text)
+        except ValueError:
+            print(f"skip (no anchor): {path}")
+            continue
         if new != text:
             path.write_text(new)
             print(f"updated: {path}")

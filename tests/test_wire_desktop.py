@@ -60,3 +60,14 @@ def test_main_edits_existing_files_and_skips_missing(tmp_path, monkeypatch, caps
     assert "custom-vaio-center.jsonc" in (tmp_path / ".config/waybar/includes/includes.json").read_text()
     assert "--restore" in (tmp_path / ".config/hypr/hyprland.lua").read_text()
     assert "skip" in capsys.readouterr().out  # the layout file does not exist in tmp
+
+
+def test_main_skips_a_file_without_anchor_and_continues(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(wire_desktop.Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / ".config/waybar/includes").mkdir(parents=True)
+    includes = tmp_path / ".config/waybar/includes/includes.json"
+    includes.write_text('"include": [\n    "/x/image.jsonc"\n],\n')
+    (tmp_path / ".config/waybar/config.jsonc").write_text(CONFIG)
+    assert wire_desktop.main(["wire_desktop.py", "/home/u/.local/bin/vaio-center"]) == 0
+    assert f"skip (no anchor): {includes}" in capsys.readouterr().out
+    assert "custom/vaio-center" in (tmp_path / ".config/waybar/config.jsonc").read_text()
