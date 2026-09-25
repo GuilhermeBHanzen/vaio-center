@@ -64,6 +64,9 @@ class FansPage(Page):
     def refresh(self):
         cpu = self.temps.cpu_temp_c()
         self.cpu.set_subtitle("—" if cpu is None else f"{cpu:.0f} °C")
+        root = self.get_root()
+        if isinstance(root, Gtk.Window) and not root.is_active():
+            return  # each read_fans() is a pkexec call; skip it while unfocused
         fans = self.backend.read_fans()
         if "error" in fans:
             self.report(fans["error"])
@@ -74,7 +77,10 @@ class FansPage(Page):
         self._sync_mode()
 
     def on_forced_auto(self):
-        self.report(f"A CPU chegou a {LIMIT_C} °C: as ventoinhas voltaram para o automático.")
+        self.report(
+            f"A CPU chegou a {LIMIT_C} °C ou a temperatura não pôde ser lida: "
+            "as ventoinhas voltaram para o automático."
+        )
         self._sync_mode()
 
     def _sync_mode(self):
