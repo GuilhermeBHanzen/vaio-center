@@ -55,9 +55,9 @@ class PerformancePage(Page):
             self._show_charge(charge)
 
     def _show_charge(self, charge):
-        self.enabled.set_active(charge["enabled"])
-        self.stop.set_value(charge["stop"])
-        self.start.set_value(charge["start"])
+        self.enabled.set_active(charge.get("enabled", False))
+        self.stop.set_value(charge.get("stop", 80))
+        self.start.set_value(charge.get("start", 75))
 
     def _on_profile(self, combo, _pspec):
         index = combo.get_selected()
