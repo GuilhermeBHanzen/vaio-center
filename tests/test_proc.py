@@ -53,3 +53,7 @@ def test_timeout_is_an_error(monkeypatch):
     out, err = proc.run(["slow"])
     assert out is None
     assert "timed out" in err
+
+
+def test_empty_command_is_an_error():
+    assert proc.run([]) == (None, "empty command")
