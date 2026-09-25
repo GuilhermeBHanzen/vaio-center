@@ -2,6 +2,6 @@
     "custom/vaio-center": {
         "format": "󰌢",
         "tooltip": false,
-        "on-click": "@BIN@"
+        "on-click": "uwsm app -- @BIN@"
     }
 }

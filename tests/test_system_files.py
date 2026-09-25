@@ -24,3 +24,9 @@ def test_root_installer_installs_helper_policy_and_module_config():
 
 def test_modules_load_file_names_acpi_call():
     assert (ROOT / "system" / "acpi_call.conf").read_text().strip() == "acpi_call"
+
+
+def test_waybar_button_launches_through_uwsm():
+    # A plain child of waybar dies on every waybar reload; uwsm gives it its own unit.
+    template = (ROOT / "data" / "custom-vaio-center.jsonc.in").read_text()
+    assert '"on-click": "uwsm app -- @BIN@"' in template
