@@ -10,12 +10,14 @@ from gi.repository import Adw, Gio, GLib  # noqa: E402
 from vaio_center.backend import state as state_store  # noqa: E402
 from vaio_center.fan_guard import FanGuard  # noqa: E402
 from vaio_center.window import MainWindow  # noqa: E402
+from vaio_center.tabs.battery import BatteryPage  # noqa: E402
+from vaio_center.tabs.power import PowerPage  # noqa: E402
 
 APP_ID = "org.local.VaioCenter"
 REFRESH_MS = 5000
 
 # Page classes in sidebar order. Each is constructed with the app as its only argument.
-PAGES = []
+PAGES = [BatteryPage, PowerPage]
 
 
 class VaioCenter(Adw.Application):
