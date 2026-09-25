@@ -7,6 +7,14 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib  # noqa: E402
 
+try:
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix  # noqa: E402
+
+    unix_signal_add = GLibUnix.signal_add
+except (ImportError, ValueError):
+    unix_signal_add = GLib.unix_signal_add
+
 from vaio_center.backend import state as state_store  # noqa: E402
 from vaio_center.fan_guard import FanGuard  # noqa: E402
 from vaio_center.window import MainWindow  # noqa: E402
@@ -32,7 +40,7 @@ class VaioCenter(Adw.Application):
         self.guard = FanGuard()
         self.window = None
         self.pages = {}
-        # Runs on every way out: last window closed, SIGINT/SIGTERM, logout.
+        # Runs on every way out: last window closed, SIGINT/SIGTERM/SIGHUP, logout.
         self.connect("shutdown", lambda _app: self.guard.release())
 
     def save_state(self):
@@ -43,8 +51,8 @@ class VaioCenter(Adw.Application):
             self.pages = {cls.key: cls(self) for cls in PAGES}
             self.window = MainWindow(self, list(self.pages.values()))
             self._watch_sleep()
-            for signum in (signal.SIGINT, signal.SIGTERM):
-                GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self._on_signal)
+            for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self._on_signal)
             GLib.timeout_add(REFRESH_MS, self._tick)
         self.window.present()
         self.window.refresh_visible()
