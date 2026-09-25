@@ -38,3 +38,15 @@ def test_restore_flag_runs_without_gui(monkeypatch, capsys):
     monkeypatch.setattr(entry.restore, "restore", lambda data: ["boom"] if data == {"marker": True} else [])
     assert entry.main(["vaio-center", "--restore"]) == 1
     assert "boom" in capsys.readouterr().err
+
+
+def test_restore_value_error_does_not_abort_the_rest(recorder):
+    class BadProfile(recorder):
+        def set_profile(self, code):
+            raise ValueError(f"bad profile {code}")
+
+    data = copy.deepcopy(state.DEFAULTS)
+    data["profile"] = 3
+    wmi = BadProfile()
+    assert restore.restore(data, wmi) == ["bad profile 3"]
+    assert wmi.calls[-1] == ("disable_charge_limit",)
