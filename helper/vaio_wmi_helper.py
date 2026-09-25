@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -I
 """Root-only bridge from vaio-center to the VAIO FH15 embedded controller.
 
 Started through pkexec. Accepts a fixed set of sub-commands with range-checked

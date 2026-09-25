@@ -100,9 +100,9 @@ def test_main_acpi_failure_exits_1(monkeypatch, capsys):
     assert "AE_NOT_FOUND" in capsys.readouterr().err
 
 
-def test_helper_has_absolute_python_shebang():
+def test_helper_has_isolated_absolute_python_shebang():
     with open(helper.__file__) as f:
-        assert f.readline().strip() == "#!/usr/bin/python3"
+        assert f.readline().strip() == "#!/usr/bin/python3 -I"
 
 
 def test_main_creates_lock_file(monkeypatch, tmp_path):
