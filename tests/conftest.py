@@ -1,5 +1,7 @@
 import pytest
 
+import vaio_wmi_helper as helper
+
 
 class Recorder:
     """Stands in for a backend module: records every call, returns a fixed error."""
@@ -19,3 +21,9 @@ class Recorder:
 @pytest.fixture
 def recorder():
     return Recorder
+
+
+@pytest.fixture(autouse=True)
+def mock_lock_file(tmp_path, monkeypatch):
+    """Monkeypatch LOCK_FILE to use a temp path for all tests."""
+    monkeypatch.setattr(helper, "LOCK_FILE", str(tmp_path / "lock"))

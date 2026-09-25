@@ -6,10 +6,13 @@ integer arguments, packs them into \\_SB.WMI.WMBB calls (Clevo WMI interface,
 GUID ABBC0F6D-8EA1-11D1-00A0-C90629100000) and executes them via acpi_call.
 It never forwards caller-supplied ACPI paths or raw arguments.
 """
+import fcntl
 import json
+import os
 import sys
 
 ACPI_CALL = "/proc/acpi/call"
+LOCK_FILE = "/run/vaio-wmi-helper.lock"
 METHOD = "\\_SB.WMI.WMBB"
 
 KBD = 0x67
@@ -114,13 +117,27 @@ def main(argv=None):
     except UsageError as exc:
         print(f"vaio-wmi-helper: {exc}", file=sys.stderr)
         return 2
+
+    fd = None
     try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
         replies = [call_acpi(format_call(cmd, arg)) for cmd, arg in calls]
     except (OSError, RuntimeError) as exc:
         print(f"vaio-wmi-helper: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if fd is not None:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
     if args[0] == "fan-read":
-        print(json.dumps({f"{cmd:#x}": int(reply, 16) for (cmd, _), reply in zip(calls, replies)}))
+        try:
+            output = {f"{cmd:#x}": int(reply, 16) for (cmd, _), reply in zip(calls, replies)}
+            print(json.dumps(output))
+        except ValueError as exc:
+            print(f"vaio-wmi-helper: unexpected reply format: {exc}", file=sys.stderr)
+            return 1
     else:
         print(replies[-1])
     return 0

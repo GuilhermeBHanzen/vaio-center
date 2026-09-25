@@ -103,3 +103,24 @@ def test_main_acpi_failure_exits_1(monkeypatch, capsys):
 def test_helper_has_absolute_python_shebang():
     with open(helper.__file__) as f:
         assert f.readline().strip() == "#!/usr/bin/python3"
+
+
+def test_main_creates_lock_file(monkeypatch, tmp_path):
+    """Verify lock file is created after successful main() call."""
+    lock_path = tmp_path / "lock"
+    monkeypatch.setattr(helper, "LOCK_FILE", str(lock_path))
+    monkeypatch.setattr(helper, "call_acpi", lambda line: "0x76")
+
+    assert helper.main(["charge-get"]) == 0
+    assert lock_path.exists()
+
+
+def test_main_fan_read_rejects_non_hex_reply(monkeypatch, capsys):
+    """Verify fan-read with non-hex reply returns 1 and error message."""
+    def fake_call(line):
+        return "garbage"
+
+    monkeypatch.setattr(helper, "call_acpi", fake_call)
+    assert helper.main(["fan-read"]) == 1
+    stderr = capsys.readouterr().err
+    assert "vaio-wmi-helper:" in stderr
