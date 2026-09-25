@@ -2,7 +2,9 @@
 import subprocess
 
 CANCELLED = "cancelled"
-PKEXEC_DISMISSED = (126, 127)
+PKEXEC_DISMISSED = 126
+PKEXEC_NOT_AUTHORIZED = 127
+NOT_AUTHORIZED = "Sem autorização do polkit ou helper ausente — rode: sudo ~/vaio-center/install-root.sh"
 
 
 def run(cmd, timeout=10):
@@ -19,6 +21,8 @@ def run(cmd, timeout=10):
         return None, str(exc)
     if proc.returncode == 0:
         return proc.stdout, None
-    if cmd[0] == "pkexec" and proc.returncode in PKEXEC_DISMISSED:
+    if cmd[0] == "pkexec" and proc.returncode == PKEXEC_DISMISSED:
         return None, CANCELLED
+    if cmd[0] == "pkexec" and proc.returncode == PKEXEC_NOT_AUTHORIZED:
+        return None, NOT_AUTHORIZED
     return None, proc.stderr.strip() or f"{cmd[0]} exited with {proc.returncode}"

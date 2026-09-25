@@ -30,6 +30,19 @@ def test_dismissed_pkexec_is_cancelled(monkeypatch):
     assert proc.run(["pkexec", "tlp", "balanced"]) == (None, proc.CANCELLED)
 
 
+def test_pkexec_127_explains_missing_authorization(monkeypatch):
+    monkeypatch.setattr(proc.subprocess, "run", fake_run(127, "", "Not authorized\n"))
+    assert proc.run(["pkexec", "/usr/local/libexec/vaio-wmi-helper", "fan-auto"]) == (
+        None,
+        "Sem autorização do polkit ou helper ausente — rode: sudo ~/vaio-center/install-root.sh",
+    )
+
+
+def test_exit_127_from_other_tools_is_a_plain_error(monkeypatch):
+    monkeypatch.setattr(proc.subprocess, "run", fake_run(127))
+    assert proc.run(["tool"]) == (None, "tool exited with 127")
+
+
 def test_exit_126_from_other_tools_is_a_plain_error(monkeypatch):
     monkeypatch.setattr(proc.subprocess, "run", fake_run(126))
     assert proc.run(["tool"]) == (None, "tool exited with 126")
