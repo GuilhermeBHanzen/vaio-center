@@ -14,12 +14,13 @@ from vaio_center.tabs.battery import BatteryPage  # noqa: E402
 from vaio_center.tabs.power import PowerPage  # noqa: E402
 from vaio_center.tabs.brightness import BrightnessPage  # noqa: E402
 from vaio_center.tabs.gpu import GpuPage  # noqa: E402
+from vaio_center.tabs.keyboard import KeyboardPage  # noqa: E402
 
 APP_ID = "org.local.VaioCenter"
 REFRESH_MS = 5000
 
 # Page classes in sidebar order. Each is constructed with the app as its only argument.
-PAGES = [BatteryPage, PowerPage, BrightnessPage, GpuPage]
+PAGES = [KeyboardPage, BatteryPage, PowerPage, BrightnessPage, GpuPage]
 
 
 class VaioCenter(Adw.Application):
