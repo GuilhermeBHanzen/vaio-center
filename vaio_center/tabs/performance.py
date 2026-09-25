@@ -1,5 +1,5 @@
 """EC performance profile and battery charge limit."""
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from vaio_center.backend import wmi
 from vaio_center.ui import Debouncer, Page
@@ -20,8 +20,7 @@ class PerformancePage(Page):
             "Muda limites de potência e a curva das ventoinhas no EC. É independente do modo do TLP.",
         )
         self.combo = Adw.ComboRow(title="Perfil", model=Gtk.StringList.new(list(backend.PROFILE_LABELS.values())))
-        saved = app.state["profile"]
-        self.combo.set_selected(self.codes.index(saved) if saved in self.codes else Gtk.INVALID_LIST_POSITION)
+        self._show_profile(app.state["profile"])
         self.combo.connect("notify::selected", self._on_profile)
         profile.add(self.combo)
 
@@ -59,14 +58,28 @@ class PerformancePage(Page):
         self.stop.set_value(charge.get("stop", 80))
         self.start.set_value(charge.get("start", 75))
 
+    def _show_profile(self, code):
+        self.combo.set_selected(self.codes.index(code) if code in self.codes else Gtk.INVALID_LIST_POSITION)
+
+    def _revert_profile(self):
+        with self.syncing():
+            self._show_profile(self.app.state["profile"])
+        return GLib.SOURCE_REMOVE
+
     def _on_profile(self, combo, _pspec):
         index = combo.get_selected()
         if self.is_syncing or index == Gtk.INVALID_LIST_POSITION:
             return
         code = self.codes[index]
-        if not self.report(self.backend.set_profile(code)):
+        error = self.backend.set_profile(code)
+        self.report(error)
+        if error is None:
             self.app.state["profile"] = code
             self.app.save_state()
+        else:
+            # Failed or cancelled: show what the EC still has. Deferred because a
+            # nested set_selected inside this notify handler is emitted after it returns.
+            GLib.idle_add(self._revert_profile)
 
     def _on_charge_changed(self, *_args):
         if not self.is_syncing:
@@ -80,6 +93,10 @@ class PerformancePage(Page):
             self.report("O valor de retomada precisa ser menor que o de parada.")
             return
         error = self.backend.set_charge_limit(stop, start) if enabled else self.backend.disable_charge_limit()
-        if not self.report(error):
+        self.report(error)
+        if error is None:
             self.app.state["charge"] = {"enabled": enabled, "stop": stop, "start": start}
             self.app.save_state()
+        else:  # failed or cancelled: show the last applied values
+            with self.syncing():
+                self._show_charge(self.app.state["charge"])
