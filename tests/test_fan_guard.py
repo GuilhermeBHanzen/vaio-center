@@ -65,3 +65,28 @@ def test_release_only_acts_outside_auto(recorder):
     guard.release()
     assert wmi.calls[-1] == ("set_fan_auto",)
     assert guard.mode == "auto"
+
+
+def test_check_forces_auto_after_two_missing_readings(recorder):
+    wmi = recorder()
+    temps = Temps(None)
+    guard = FanGuard(wmi, temps)
+    guard.set_mode("manual", 40)
+    assert guard.check() is False
+    assert guard.check() is True
+    assert guard.mode == "auto"
+    assert wmi.calls[-1] == ("set_fan_auto",)
+
+
+def test_valid_reading_resets_missing_sensor_count(recorder):
+    wmi = recorder()
+    temps = Temps(None)
+    guard = FanGuard(wmi, temps)
+    guard.set_mode("max")
+    assert guard.check() is False
+    temps.value = 60
+    assert guard.check() is False
+    temps.value = None
+    assert guard.check() is False
+    assert guard.mode == "max"
+    assert ("set_fan_auto",) not in wmi.calls

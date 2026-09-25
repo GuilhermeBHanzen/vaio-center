@@ -5,6 +5,7 @@ from vaio_center.backend.wmi import byte_from_percent
 
 LIMIT_C = 90
 MIN_PCT = 30
+MAX_MISSES = 2  # consecutive failed temperature reads before failing closed
 
 
 class FanGuard:
@@ -12,6 +13,7 @@ class FanGuard:
         self.wmi = wmi
         self.sensors = sensors
         self.mode = "auto"
+        self.misses = 0
 
     def set_mode(self, mode, duty_pct=50):
         if mode == "auto":
@@ -32,9 +34,19 @@ class FanGuard:
         if self.mode == "auto":
             return False
         temp = self.sensors.cpu_temp_c()
-        if temp is None or temp < LIMIT_C:
-            return False
-        return self.set_mode("auto") is None
+        if temp is None:
+            # Fail closed: a blind fixed duty is as unsafe as a hot one.
+            self.misses += 1
+            if self.misses < MAX_MISSES:
+                return False
+        else:
+            self.misses = 0
+            if temp < LIMIT_C:
+                return False
+        forced = self.set_mode("auto") is None
+        if forced:
+            self.misses = 0
+        return forced
 
     def release(self):
         return None if self.mode == "auto" else self.set_mode("auto")
