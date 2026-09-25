@@ -1,0 +1,2 @@
+#!/bin/sh
+PYTHONPATH="$HOME/.local/lib/vaio-center${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m vaio_center "$@"

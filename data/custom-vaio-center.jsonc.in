@@ -1,0 +1,7 @@
+{
+    "custom/vaio-center": {
+        "format": "󰌢",
+        "tooltip": false,
+        "on-click": "@BIN@"
+    }
+}

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=VAIO Control Center
+Comment=Teclado RGB, ventoinhas, desempenho e bateria
+Exec=@BIN@
+Icon=computer-laptop
+Terminal=false
+Categories=Settings;HardwareSettings;
+StartupWMClass=org.local.VaioCenter
