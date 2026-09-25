@@ -95,5 +95,9 @@ class FansPage(Page):
             self._apply_speed(percent)
 
     def _send_manual(self, percent):
+        # The user may have left manual mode while this send was debounced.
+        if self.guard.mode != "manual":
+            return
         self.report(self.guard.set_mode("manual", percent))
+        self._sync_mode()
         self.app.save_state()
