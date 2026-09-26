@@ -9,5 +9,10 @@ fi
 install -D -o root -g root -m 0755 "$here/helper/vaio_wmi_helper.py" /usr/local/libexec/vaio-wmi-helper
 install -D -o root -g root -m 0644 "$here/system/org.local.vaio-center.policy" /usr/share/polkit-1/actions/org.local.vaio-center.policy
 install -D -o root -g root -m 0644 "$here/system/acpi_call.conf" /etc/modules-load.d/acpi_call.conf
+if ! command -v acpid >/dev/null 2>&1; then
+    echo "acpid is required: pacman -S acpid" >&2
+    exit 1
+fi
+systemctl enable --now acpid.service
 modprobe acpi_call
 echo "root parts installed"

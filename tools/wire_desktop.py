@@ -1,5 +1,6 @@
-"""Idempotently hooks vaio-center into the user's waybar and Hyprland config.
+"""Idempotently hooks vaio-center into the user's waybar config.
 
+Removes the v1 login hook from Hyprland config — the daemon now restores settings.
 Anchors on the existing custom/tlpinfo entries, the same places the TLP module
 was wired into, so HyDE layout regeneration keeps both together.
 """
@@ -21,16 +22,15 @@ def add_after_tlp(text, entry):
     raise ValueError("no tlpinfo entry to anchor on")
 
 
-def add_autostart(text, launcher):
-    if AUTOSTART_MARKER in text:
+def remove_autostart(text):
+    """Drop the v1 --restore hook: the daemon now restores settings at login."""
+    if AUTOSTART_MARKER not in text:
         return text
-    block = (
-        f"\n{AUTOSTART_MARKER} keyboard colors, EC profile and charge limit after login\n"
-        'hl.on("hyprland.start", function()\n'
-        f'\thl.exec_cmd("{launcher} --restore")\n'
-        "end)\n"
-    )
-    return text.rstrip("\n") + "\n" + block
+    head, _, rest = text.partition(AUTOSTART_MARKER)
+    _, sep, tail = rest.partition("end)\n")
+    if not sep:
+        return text
+    return head.rstrip("\n") + "\n" + tail
 
 
 def main(argv):
@@ -41,7 +41,7 @@ def main(argv):
         (home / ".config/waybar/includes/includes.json", lambda t: add_after_tlp(t, module)),
         (home / ".config/waybar/config.jsonc", lambda t: add_after_tlp(t, '"custom/vaio-center"')),
         (home / ".local/share/waybar/layouts/hyprdots/17.jsonc", lambda t: add_after_tlp(t, '"custom/vaio-center"')),
-        (home / ".config/hypr/hyprland.lua", lambda t: add_autostart(t, launcher)),
+        (home / ".config/hypr/hyprland.lua", lambda t: remove_autostart(t)),
     ]
     for path, edit in edits:
         if not path.exists():

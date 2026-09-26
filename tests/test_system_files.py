@@ -30,3 +30,14 @@ def test_waybar_button_launches_through_uwsm():
     # A plain child of waybar dies on every waybar reload; uwsm gives it its own unit.
     template = (ROOT / "data" / "custom-vaio-center.jsonc.in").read_text()
     assert '"on-click": "uwsm app -- @BIN@"' in template
+
+
+def test_user_unit_runs_daemon_and_returns_fans_to_auto():
+    unit = (ROOT / "data" / "vaio-center.service").read_text()
+    assert "ExecStart=%h/.local/bin/vaio-center --daemon" in unit
+    assert "ExecStopPost=%h/.local/bin/vaio-center --fan-auto" in unit
+    assert "Restart=on-failure" in unit
+
+
+def test_root_installer_enables_acpid():
+    assert "systemctl enable --now acpid" in (ROOT / "install-root.sh").read_text()

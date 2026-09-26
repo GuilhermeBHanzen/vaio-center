@@ -13,5 +13,9 @@ install -m 0755 "$here/data/vaio-center" "$bin"
 sed "s|@BIN@|$bin|g" "$here/data/vaio-center.desktop.in" > "$HOME/.local/share/applications/vaio-center.desktop"
 sed "s|@BIN@|$bin|g" "$here/data/custom-vaio-center.jsonc.in" > "$HOME/.local/share/waybar/modules/custom-vaio-center.jsonc"
 python3 "$here/tools/wire_desktop.py" "$bin"
+install -D -m 0644 "$here/data/vaio-center.service" "$HOME/.config/systemd/user/vaio-center.service"
+systemctl --user daemon-reload
+systemctl --user enable vaio-center.service
+systemctl --user restart vaio-center.service
 pkill -SIGUSR2 waybar || true
 echo "vaio-center installed: app launcher, waybar laptop icon, or $bin"

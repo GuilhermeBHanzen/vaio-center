@@ -1,0 +1,12 @@
+[Unit]
+Description=VAIO Control Center daemon (Fn backlight keys, fan modes)
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/vaio-center --daemon
+ExecStopPost=%h/.local/bin/vaio-center --fan-auto
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

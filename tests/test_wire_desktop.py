@@ -39,13 +39,18 @@ def test_add_after_tlp_needs_an_anchor():
         wire_desktop.add_after_tlp('"cpu",\n', '"custom/vaio-center"')
 
 
-def test_add_autostart_appends_once():
-    lua = "-- user config\n"
-    out = wire_desktop.add_autostart(lua, "/home/u/.local/bin/vaio-center")
-    assert 'hl.exec_cmd("/home/u/.local/bin/vaio-center --restore")' in out
-    assert 'hl.on("hyprland.start", function()' in out
-    assert out.startswith("-- user config\n")
-    assert wire_desktop.add_autostart(out, "/home/u/.local/bin/vaio-center") == out
+V1_HOOK = (
+    "-- user config\n\n"
+    "-- vaio-center: re-apply keyboard colors, EC profile and charge limit after login\n"
+    'hl.on("hyprland.start", function()\n'
+    '\thl.exec_cmd("/home/u/.local/bin/vaio-center --restore")\n'
+    "end)\n"
+)
+
+
+def test_remove_autostart_drops_v1_hook():
+    assert wire_desktop.remove_autostart(V1_HOOK) == "-- user config\n"
+    assert wire_desktop.remove_autostart("-- user config\n") == "-- user config\n"
 
 
 def test_main_edits_existing_files_and_skips_missing(tmp_path, monkeypatch, capsys):
@@ -54,11 +59,11 @@ def test_main_edits_existing_files_and_skips_missing(tmp_path, monkeypatch, caps
     (tmp_path / ".config/waybar/includes/includes.json").write_text(INCLUDES)
     (tmp_path / ".config/waybar/config.jsonc").write_text(CONFIG)
     (tmp_path / ".config/hypr").mkdir(parents=True)
-    (tmp_path / ".config/hypr/hyprland.lua").write_text("-- user\n")
+    (tmp_path / ".config/hypr/hyprland.lua").write_text(V1_HOOK)
     assert wire_desktop.main(["wire_desktop.py", str(tmp_path / ".local/bin/vaio-center")]) == 0
     assert "custom/vaio-center" in (tmp_path / ".config/waybar/config.jsonc").read_text()
     assert "custom-vaio-center.jsonc" in (tmp_path / ".config/waybar/includes/includes.json").read_text()
-    assert "--restore" in (tmp_path / ".config/hypr/hyprland.lua").read_text()
+    assert "--restore" not in (tmp_path / ".config/hypr/hyprland.lua").read_text()
     assert "skip" in capsys.readouterr().out  # the layout file does not exist in tmp
 
 
