@@ -5,6 +5,11 @@ Started through pkexec. Accepts a fixed set of sub-commands with range-checked
 integer arguments, packs them into \\_SB.WMI.WMBB calls (Clevo WMI interface,
 GUID ABBC0F6D-8EA1-11D1-00A0-C90629100000) and executes them via acpi_call.
 It never forwards caller-supplied ACPI paths or raw arguments.
+
+Sub-commands:
+  kbd-color RGB      - Set keyboard color (single zone, RGB as 0xRRGGBB, sent as B-R-G)
+  events-on          - Enable Fn key hotkey events
+  event-get          - Get a pending hotkey event
 """
 import fcntl
 import json
@@ -18,6 +23,8 @@ METHOD = "\\_SB.WMI.WMBB"
 KBD = 0x67
 FAN_SET = 0x68
 FAN_AUTO = 0x69
+SET_EVENTS = 0x46
+GET_EVENT = 0x01
 CHARGE_SET = 0x76
 CHARGE_GET = 0x77
 OPT = 0x79
@@ -26,11 +33,13 @@ PROFILES = (0, 1, 2, 5, 6, 7, 8)
 MIN_DUTY = 64
 
 ARITY = {
-    "kbd-color": 2,
+    "kbd-color": 1,
     "kbd-brightness": 1,
     "fan-duty": 2,
     "fan-auto": 0,
     "fan-read": 0,
+    "events-on": 0,
+    "event-get": 0,
     "charge-set": 2,
     "charge-off": 0,
     "charge-get": 0,
@@ -63,9 +72,14 @@ def encode(args):
         raise UsageError(f"{op} takes {ARITY[op]} argument(s)")
 
     if op == "kbd-color":
-        zone = _int(rest[0], 0, 3, "zone")
-        rgb = _int(rest[1], 0, 0xFFFFFF, "rgb")
-        return [(KBD, 0xF0000000 | zone << 24 | rgb)]
+        rgb = _int(rest[0], 0, 0xFFFFFF, "rgb")
+        red, green, blue = rgb >> 16 & 0xFF, rgb >> 8 & 0xFF, rgb & 0xFF
+        # Single-zone keyboard: only zone 0 has an effect, in B-R-G byte order.
+        return [(KBD, 0xF0000000 | blue << 16 | red << 8 | green)]
+    if op == "events-on":
+        return [(SET_EVENTS, 0)]
+    if op == "event-get":
+        return [(GET_EVENT, 0)]
     if op == "kbd-brightness":
         return [(KBD, 0xF4000000 | _int(rest[0], 0, 255, "brightness"))]
     if op == "fan-duty":
