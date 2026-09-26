@@ -4,6 +4,23 @@ from gi.repository import Adw, GLib, Gtk
 from vaio_center.backend import wmi
 from vaio_center.ui import Debouncer, Page
 
+PRESETS = (
+    ("Máxima vida útil", True, 60, 55),
+    ("Equilibrado", True, 80, 75),
+    ("Carga completa", False, 80, 75),
+)
+CUSTOM = "Personalizado"
+
+
+def preset_index(enabled, stop, start):
+    """Which preset the current values match; len(PRESETS) means custom."""
+    for index, (_label, preset_enabled, preset_stop, preset_start) in enumerate(PRESETS):
+        if not enabled and not preset_enabled:
+            return index
+        if enabled and preset_enabled and (stop, start) == (preset_stop, preset_start):
+            return index
+    return len(PRESETS)
+
 
 class PerformancePage(Page):
     key = "performance"
@@ -24,7 +41,12 @@ class PerformancePage(Page):
         self.combo.connect("notify::selected", self._on_profile)
         profile.add(self.combo)
 
-        charge = self.group("Limite de carga", "Protege a bateria mantendo a carga entre os dois valores.")
+        charge = self.group("Limite de carga", "Máxima vida útil (60%) é a melhor para quem fica sempre na tomada.")
+        self.preset = Adw.ComboRow(
+            title="Perfil de carga",
+            model=Gtk.StringList.new([p[0] for p in PRESETS] + [CUSTOM]),
+        )
+        charge.add(self.preset)
         self.enabled = Adw.SwitchRow(title="Limitar carga")
         self.stop = Adw.SpinRow.new_with_range(50, 100, 1)
         self.stop.set_title("Parar de carregar em (%)")
@@ -38,6 +60,7 @@ class PerformancePage(Page):
         self.enabled.connect("notify::active", self._on_charge_changed)
         self.stop.connect("notify::value", self._on_charge_changed)
         self.start.connect("notify::value", self._on_charge_changed)
+        self.preset.connect("notify::selected", self._on_preset)
 
     def refresh(self):
         # Read the EC once per session; polling would spam the journal with pkexec entries.
@@ -57,6 +80,8 @@ class PerformancePage(Page):
         self.enabled.set_active(charge.get("enabled", False))
         self.stop.set_value(charge.get("stop", 80))
         self.start.set_value(charge.get("start", 75))
+        self.preset.set_selected(preset_index(
+            self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
 
     def _show_profile(self, code):
         self.combo.set_selected(self.codes.index(code) if code in self.codes else Gtk.INVALID_LIST_POSITION)
@@ -81,9 +106,24 @@ class PerformancePage(Page):
             # nested set_selected inside this notify handler is emitted after it returns.
             GLib.idle_add(self._revert_profile)
 
+    def _on_preset(self, combo, _pspec):
+        index = combo.get_selected()
+        if self.is_syncing or index >= len(PRESETS):
+            return  # "Personalizado": the user edits the values below
+        _label, enabled, stop, start = PRESETS[index]
+        with self.syncing():
+            self.enabled.set_active(enabled)
+            self.stop.set_value(stop)
+            self.start.set_value(start)
+        self._apply_charge()
+
     def _on_charge_changed(self, *_args):
-        if not self.is_syncing:
-            self._apply_charge()
+        if self.is_syncing:
+            return
+        with self.syncing():
+            self.preset.set_selected(preset_index(
+                self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
+        self._apply_charge()
 
     def _send_charge(self):
         enabled = self.enabled.get_active()
