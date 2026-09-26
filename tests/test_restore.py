@@ -53,3 +53,10 @@ def test_restore_value_error_does_not_abort_the_rest(recorder):
     wmi = BadProfile()
     assert restore.restore(data, wmi, Level()) == ["bad profile 3"]
     assert wmi.calls[-1] == ("disable_charge_limit",)
+
+
+def test_fan_auto_flag(monkeypatch):
+    calls = []
+    monkeypatch.setattr(entry.wmi, "set_fan_auto", lambda: calls.append(1))
+    assert entry.main(["vaio-center", "--fan-auto"]) == 0
+    assert calls == [1]
