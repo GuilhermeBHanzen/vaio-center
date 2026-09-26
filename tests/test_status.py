@@ -21,6 +21,12 @@ def test_missing_garbled_or_stale_is_none(tmp_path):
     assert status.read(path, now=105.0)["mode"] == "normal"
 
 
+def test_non_numeric_updated_is_garbled(tmp_path):
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps({"mode": "normal", "updated": "not-a-number"}))
+    assert status.read(path) is None
+
+
 def test_path_uses_xdg_runtime_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     assert status.status_path() == tmp_path / "vaio-center" / "status.json"

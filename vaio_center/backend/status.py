@@ -28,6 +28,10 @@ def read(path=None, now=None):
     if not isinstance(data, dict):
         return None
     now = time.time() if now is None else now
-    if now - data.get("updated", 0) > STALE_S:
+    try:
+        age = now - data.get("updated", 0)
+    except TypeError:  # a non-numeric "updated" means the file is garbled
+        return None
+    if age > STALE_S:
         return None
     return data

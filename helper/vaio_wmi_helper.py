@@ -7,9 +7,17 @@ GUID ABBC0F6D-8EA1-11D1-00A0-C90629100000) and executes them via acpi_call.
 It never forwards caller-supplied ACPI paths or raw arguments.
 
 Sub-commands:
-  kbd-color RGB      - Set keyboard color (single zone, RGB as 0xRRGGBB, sent as B-R-G)
-  events-on          - Enable Fn key hotkey events
-  event-get          - Get a pending hotkey event
+  kbd-color RGB          - Set keyboard color (single zone, RGB as 0xRRGGBB, sent as B-R-G)
+  kbd-brightness LEVEL   - Set keyboard backlight brightness (0-255)
+  fan-duty DUTY1 DUTY2   - Set fixed fan duty for both fans (64-255 each)
+  fan-auto               - Hand fan control back to the EC
+  fan-read               - Read both fan tachometers
+  events-on              - Enable Fn key hotkey events
+  event-get              - Get a pending hotkey event
+  charge-set STOP START  - Enable the battery charge limit (40-100, start < stop)
+  charge-off             - Disable the battery charge limit
+  charge-get             - Read the battery charge limit
+  profile CODE           - Set the EC power profile (one of 0, 1, 2, 5, 6, 7, 8)
 """
 import fcntl
 import json

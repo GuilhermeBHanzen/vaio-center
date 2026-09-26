@@ -1,5 +1,7 @@
 [Unit]
 Description=VAIO Control Center daemon (Fn backlight keys, fan modes)
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -7,6 +9,7 @@ ExecStart=%h/.local/bin/vaio-center --daemon
 ExecStopPost=%h/.local/bin/vaio-center --fan-auto
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=20
 
 [Install]
 WantedBy=default.target

@@ -14,8 +14,6 @@ sed "s|@BIN@|$bin|g" "$here/data/vaio-center.desktop.in" > "$HOME/.local/share/a
 sed "s|@BIN@|$bin|g" "$here/data/custom-vaio-center.jsonc.in" > "$HOME/.local/share/waybar/modules/custom-vaio-center.jsonc"
 python3 "$here/tools/wire_desktop.py" "$bin"
 install -D -m 0644 "$here/data/vaio-center.service" "$HOME/.config/systemd/user/vaio-center.service"
-systemctl --user daemon-reload
-systemctl --user enable vaio-center.service
-systemctl --user restart vaio-center.service
+systemctl --user daemon-reload && systemctl --user enable vaio-center.service && systemctl --user restart vaio-center.service || echo "warn: user systemd not reachable; run later: systemctl --user enable --now vaio-center" >&2
 pkill -SIGUSR2 waybar || true
 echo "vaio-center installed: app launcher, waybar laptop icon, or $bin"

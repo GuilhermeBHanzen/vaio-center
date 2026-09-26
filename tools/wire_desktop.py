@@ -34,7 +34,9 @@ def remove_autostart(text):
 
 
 def main(argv):
-    launcher = argv[1]
+    # argv[1] (the launcher path) is unused here: the waybar module's on-click
+    # command already has the path baked in by install.sh's sed step. It is
+    # kept as a required argument for CLI compatibility with that call site.
     home = Path.home()
     module = f'"{home}/.local/share/waybar/modules/custom-vaio-center.jsonc"'
     edits = [

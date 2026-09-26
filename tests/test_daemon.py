@@ -63,6 +63,31 @@ class FakeStore:
         return {"fan": dict(self.fan)}
 
 
+class FakeClock:
+    """Manually-advanced monotonic clock for backoff/dedupe tests."""
+
+    def __init__(self, t=0.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+    def advance(self, dt):
+        self.t += dt
+
+
+class FakeSocket:
+    def __init__(self, data):
+        self.data = data
+
+    def recv(self, n):
+        data, self.data = self.data, b""
+        return data
+
+    def close(self):
+        pass
+
+
 LINE = "wmi PNP0C14:01 000000d0 00000000"
 
 
@@ -126,6 +151,16 @@ def test_hotkey_ignored_for_other_lines_and_failed_writes(tmp_path):
     assert d.level == 153
 
 
+def test_handle_line_reloads_level_from_kbd_store_before_stepping(tmp_path):
+    """I1: an app-side slider change must be picked up before the next Fn press."""
+    wmi = FakeWmi(event=0x81)
+    d = make(tmp_path, wmi=wmi, level=255)
+    d.kbd.level = 51  # the app changed the level directly, bypassing the daemon
+    d.handle_line(LINE)
+    assert ("set_keyboard_brightness", 102) in wmi.calls
+    assert d.level == 102
+
+
 def test_fan_tick_sends_only_changes_and_writes_status(tmp_path):
     wmi = FakeWmi()
     d = make(tmp_path, wmi=wmi, fan={"mode": "aggressive", "duty_pct": 50, "rev": 0}, temp=70)
@@ -156,7 +191,24 @@ def test_fan_tick_exception_forces_auto_and_keeps_ticking(tmp_path):
     result = d.fan_tick()
     assert result == daemon.GLib.SOURCE_CONTINUE
     assert ("set_fan_auto",) in wmi.calls
-    assert d.sent is None
+    assert d.sent == AUTO  # R7: set_fan_auto succeeded, so it is not resent next tick
+
+
+def test_fan_tick_status_write_failure_does_not_flip_flop(tmp_path):
+    """R7: a status_store.write() failure must not undo the fan target already sent."""
+
+    class RaisingStatus:
+        def write(self, data):
+            raise RuntimeError("disk full")
+
+    wmi = FakeWmi()
+    d = make(tmp_path, wmi=wmi, fan={"mode": "max", "duty_pct": 50, "rev": 0}, temp=50)
+    d.status_store = RaisingStatus()
+    d.policy.set_mode("max")
+    d.fan_tick()
+    d.fan_tick()
+    assert wmi.calls.count(("set_fan_duty", 255, 255)) == 1
+    assert d.sent == 100
 
 
 def test_manual_and_max_are_not_restored_at_start(tmp_path):
@@ -171,6 +223,66 @@ def test_config_change_applies_new_choice(tmp_path):
     d.store.fan = {"mode": "quiet", "duty_pct": 50, "rev": 1}
     d.store.path.write_text(json.dumps({"x": 1}))
     os.utime(d.store.path, ns=(1, 1))
+    d.load_config()
+    assert d.policy.mode == "quiet"
+
+
+def test_duty_only_change_does_not_resurrect_latched_max(tmp_path):
+    """I2(a): a slider-only change must not clear a 90C latch."""
+    d = make(tmp_path, fan={"mode": "max", "duty_pct": 50, "rev": 0})
+    d.load_config()
+    d.policy.target(95)  # crosses LIMIT_C -> latches forced
+    assert d.policy.forced
+    d.store.fan = {"mode": "max", "duty_pct": 80, "rev": 0}
+    d.store.path.write_text(json.dumps({"x": 1}))
+    os.utime(d.store.path, ns=(1, 1))
+    d.load_config()
+    assert d.policy.forced
+    assert d.policy.mode == "max"
+
+
+def test_duty_only_change_applies_new_duty_when_manual(tmp_path):
+    """I2(b): a slider-only change while manual is running just updates the duty."""
+    d = make(tmp_path, fan={"mode": "manual", "duty_pct": 40, "rev": 0})
+    d.load_config()
+    assert d.policy.mode == "manual"
+    d.store.fan = {"mode": "manual", "duty_pct": 90, "rev": 0}
+    d.store.path.write_text(json.dumps({"x": 1}))
+    os.utime(d.store.path, ns=(1, 1))
+    d.load_config()
+    assert d.policy.duty_pct == 90
+    assert not d.policy.forced
+
+
+def test_rev_bump_clears_latch(tmp_path):
+    """I2(c): a fresh choice (rev bump) still clears a latch via set_mode."""
+    d = make(tmp_path, fan={"mode": "max", "duty_pct": 50, "rev": 0})
+    d.load_config()
+    d.policy.target(95)
+    assert d.policy.forced
+    d.store.fan = {"mode": "max", "duty_pct": 50, "rev": 1}
+    d.store.path.write_text(json.dumps({"x": 1}))
+    os.utime(d.store.path, ns=(1, 1))
+    d.load_config()
+    assert not d.policy.forced
+
+
+def test_load_config_invalid_mode_falls_back_to_normal(tmp_path):
+    """R6: an unreadable/invalid fan config must not crash load_config."""
+    d = make(tmp_path, fan={"mode": "not-a-mode", "duty_pct": 50, "rev": 0})
+    d.load_config(initial=True)
+    assert d.policy.mode == "normal"
+    assert d.policy.duty_pct == 50
+
+
+def test_load_config_detects_content_change_with_same_mtime(tmp_path):
+    """M3: same-second rewrites must still be detected via inode/size, not mtime alone."""
+    d = make(tmp_path, fan={"mode": "normal", "duty_pct": 50, "rev": 0})
+    os.utime(d.store.path, ns=(1, 1))
+    d.load_config(initial=True)
+    d.store.fan = {"mode": "quiet", "duty_pct": 50, "rev": 1}
+    d.store.path.write_text(json.dumps({"x": 1}))
+    os.utime(d.store.path, ns=(1, 1))  # identical mtime despite the content change
     d.load_config()
     assert d.policy.mode == "quiet"
 
@@ -193,16 +305,102 @@ def test_sleep_hands_fans_to_ec_and_resume_reenables_events(tmp_path):
     d.on_sleep(True)
     assert ("set_fan_auto",) in wmi.calls
     assert d.sent == AUTO
+    assert d._sleeping is True
     d.on_sleep(False)
     assert ("events_on",) in wmi.calls
     assert d.sent is None
+    assert d._sleeping is False
+
+
+def test_fan_tick_skips_sending_while_sleeping(tmp_path):
+    """M2: fan_tick must not send anything while suspended, but still keeps ticking."""
+    wmi = FakeWmi()
+    d = make(tmp_path, wmi=wmi, fan={"mode": "max", "duty_pct": 50, "rev": 0})
+    d.load_config(initial=True)
+    d.on_sleep(True)
+    wmi.calls.clear()
+    result = d.fan_tick()
+    assert result == daemon.GLib.SOURCE_CONTINUE
+    assert wmi.calls == []
 
 
 def test_resume_events_on_failure_is_retried_by_config_tick(tmp_path):
     wmi = FakeWmi(error="boom")
     d = make(tmp_path, wmi=wmi)
+    clock = FakeClock(0.0)
+    d.clock = clock
     d.on_sleep(False)
     assert d._events_pending is True
     wmi.error = None
+    clock.advance(5.0)  # I3: config_tick only retries once the backoff has elapsed
     d._config_tick()
     assert d._events_pending is False
+
+
+def test_events_on_backoff_doubles_and_logs_first_failure_only(tmp_path, capsys):
+    wmi = FakeWmi(error="boom")
+    d = make(tmp_path, wmi=wmi)
+    clock = FakeClock(0.0)
+    d.clock = clock
+    d._reset_events_backoff()
+    assert d._events_on() is False
+    assert d._events_backoff == 10
+    assert d._events_retry_at == 5.0
+    assert "boom" in capsys.readouterr().err
+    d._config_tick()  # not yet due: must not retry
+    assert wmi.calls.count(("events_on",)) == 1
+    clock.advance(5.0)
+    d._config_tick()  # due now: retries, still fails
+    assert wmi.calls.count(("events_on",)) == 2
+    assert capsys.readouterr().err == ""  # same streak: no duplicate log
+    assert d._events_backoff == 20
+
+
+def test_events_on_success_resets_backoff(tmp_path):
+    wmi = FakeWmi(error="boom")
+    d = make(tmp_path, wmi=wmi)
+    clock = FakeClock(0.0)
+    d.clock = clock
+    d._reset_events_backoff()
+    d._events_on()
+    assert d._events_backoff == 10
+    wmi.error = None
+    assert d._events_on() is True
+    assert d._events_backoff == 5
+    assert d._events_pending is False
+
+
+def test_events_on_unknown_subcommand_stops_retrying_until_resume(tmp_path, capsys):
+    wmi = FakeWmi(error="vaio-wmi-helper: unknown sub-command 'events-on'")
+    d = make(tmp_path, wmi=wmi)
+    clock = FakeClock(0.0)
+    d.clock = clock
+    d._reset_events_backoff()
+    assert d._events_on() is False
+    assert "helper outdated" in capsys.readouterr().err
+    clock.advance(1000)
+    d._config_tick()
+    assert wmi.calls.count(("events_on",)) == 1  # never retried: helper is outdated
+    d.on_sleep(False)  # resume resets state and tries again
+    assert wmi.calls.count(("events_on",)) == 2
+
+
+def test_dedupe_uses_socket_arrival_time_not_processing_time(tmp_path):
+    """R4: two lines arriving 0.1s apart dedupe even if handling them is slow."""
+    wmi = FakeWmi(event=0x81)
+    d = make(tmp_path, wmi=wmi, level=153)  # d.deduper.clock jumps by 1.0 per call if used
+    d.handle_line(LINE, at=0.0)
+    d.handle_line(LINE, at=0.1)
+    assert wmi.calls.count(("get_event",)) == 2
+    assert wmi.calls.count(("set_keyboard_brightness", 204)) == 1
+
+
+def test_on_socket_stamps_lines_with_arrival_clock(tmp_path):
+    wmi = FakeWmi(event=0x81)
+    d = make(tmp_path, wmi=wmi, level=153)
+    stamped = []
+    d.handle_line = lambda line, at=None: stamped.append((line, at))
+    d.clock = lambda: 42.0
+    d._sock = FakeSocket(f"{LINE}\n".encode())
+    d._on_socket(0, daemon.GLib.IOCondition.IN)
+    assert stamped == [(LINE, 42.0)]

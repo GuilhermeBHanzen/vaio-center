@@ -22,7 +22,6 @@ FORCED = (
     f"A CPU chegou a {LIMIT_C} °C ou a temperatura não pôde ser lida: "
     "o serviço voltou as ventoinhas para o automático. Escolha o modo de novo para retomar."
 )
-CLICK_GRACE_S = 3  # don't snap the radios back while the daemon is picking up a click
 
 
 def _fmt_rpm(value):
@@ -96,9 +95,11 @@ class FansPage(Page):
         else:
             self.report(FORCED if applied.get("forced") else None)
             self.applied.set_subtitle(_fmt_target(applied.get("target")))
-            if time.monotonic() - self._clicked_at > CLICK_GRACE_S and applied.get("mode") in self.checks:
+            # Don't snap the radios back to a status the daemon wrote before this click.
+            if applied.get("updated", 0) >= self._clicked_at and applied.get("mode") in self.checks:
                 with self.syncing():
                     self.checks[applied["mode"]].set_active(True)
+                self.speed.set_sensitive(applied["mode"] == "manual")
         root = self.get_root()
         if isinstance(root, Gtk.Window) and not root.is_active():
             return  # each read_fans() is a pkexec call; skip it while unfocused
@@ -118,7 +119,7 @@ class FansPage(Page):
         fan["duty_pct"] = int(self.speed.get_value())
         fan["rev"] = fan.get("rev", 0) + 1  # tells the daemon this is a fresh choice (clears a latch)
         self.app.save_state()
-        self._clicked_at = time.monotonic()
+        self._clicked_at = time.time()
         self.speed.set_sensitive(mode == "manual")
 
     def _on_speed(self, scale):

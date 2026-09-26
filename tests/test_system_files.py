@@ -39,5 +39,21 @@ def test_user_unit_runs_daemon_and_returns_fans_to_auto():
     assert "Restart=on-failure" in unit
 
 
+def test_user_unit_has_start_limit_and_stop_timeout():
+    unit = (ROOT / "data" / "vaio-center.service").read_text()
+    assert "StartLimitIntervalSec=120" in unit
+    assert "StartLimitBurst=5" in unit
+    assert "TimeoutStopSec=20" in unit
+
+
+def test_user_installer_guards_systemctl_user_calls():
+    script = (ROOT / "install.sh").read_text()
+    assert (
+        "systemctl --user daemon-reload && systemctl --user enable vaio-center.service "
+        '&& systemctl --user restart vaio-center.service || echo "warn: user systemd not '
+        'reachable; run later: systemctl --user enable --now vaio-center" >&2'
+    ) in script
+
+
 def test_root_installer_enables_acpid():
     assert "systemctl enable --now acpid" in (ROOT / "install-root.sh").read_text()

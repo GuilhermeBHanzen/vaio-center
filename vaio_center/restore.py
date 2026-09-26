@@ -1,7 +1,9 @@
 """Re-apply the saved EC settings after boot (keyboard, profile, charge limit).
 
-Fans are never restored: a fixed duty without the app running would be unsafe, so
-restore first forces them back to auto in case a duty survived an app crash.
+The vaio-center daemon owns fan modes from here on (see daemon.load_config):
+it re-applies the saved mode itself once running. This restore step never sets
+a fan duty - it only forces the fans back to auto first, in case a fixed duty
+survived a crash from before the daemon started.
 """
 from vaio_center.backend import kbdlevel
 from vaio_center.backend import wmi as wmi_backend

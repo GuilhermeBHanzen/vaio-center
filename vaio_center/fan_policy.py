@@ -58,7 +58,13 @@ class FanPolicy:
                 return AUTO
             return 100 if self.mode == "max" else self.duty_pct
         if self.mode == "aggressive":
-            return aggressive_pct(temp)
+            pct = aggressive_pct(temp)
+            current = self._last
+            if isinstance(current, int) and pct < current:
+                # Hysteresis: only step down once temp+2 would also be lower,
+                # so a reading right at a step boundary doesn't chatter.
+                return pct if aggressive_pct(temp + 2) < current else current
+            return pct
         if temp >= QUIET_HANDOFF_C:
             self._quiet_handoff = True
         elif temp <= QUIET_RESUME_C:

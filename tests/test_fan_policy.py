@@ -48,6 +48,14 @@ def test_one_missed_read_keeps_last_target_two_fail_closed():
     assert policy.target(70) == 100
 
 
+def test_aggressive_hysteresis_delays_step_down():
+    """R5: only step down when temp+2 also computes below the current step."""
+    policy = FanPolicy("aggressive")
+    assert policy.target(56.5) == 70
+    assert policy.target(55.0) == 70  # raw pct is 65, but +2 still rounds to 70: hold
+    assert policy.target(52) == 60  # +2 now also drops below 70: step down
+
+
 def test_unknown_mode_rejected():
     with pytest.raises(ValueError):
         FanPolicy("turbo")
