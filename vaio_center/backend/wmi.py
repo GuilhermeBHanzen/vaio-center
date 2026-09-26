@@ -28,17 +28,27 @@ def _write(*args):
     return _helper(*args)[1]
 
 
-def scale_rgb(rgb, percent):
-    r, g, b = (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF
-    return (r * percent // 100) << 16 | (g * percent // 100) << 8 | (b * percent // 100)
-
-
 def byte_from_percent(percent):
     return (percent * 255 + 50) // 100
 
 
-def set_zone_color(zone, rgb, calibration=100):
-    return _write("kbd-color", zone, scale_rgb(rgb, calibration))
+def set_keyboard_color(rgb):
+    return _write("kbd-color", rgb)
+
+
+def events_on():
+    return _write("events-on")
+
+
+def get_event():
+    """Last Fn hotkey code from the EC, or None if it could not be read."""
+    out, err = _helper("event-get")
+    if err:
+        return None
+    try:
+        return int(out, 16)
+    except ValueError:
+        return None
 
 
 def set_keyboard_brightness(level):

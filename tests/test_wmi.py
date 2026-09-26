@@ -27,20 +27,32 @@ def helper(monkeypatch):
     return fake
 
 
-def test_scale_rgb():
-    assert wmi.scale_rgb(0xFF8040, 100) == 0xFF8040
-    assert wmi.scale_rgb(0xFF8040, 50) == 0x7F4020
-
-
 def test_byte_from_percent():
     assert wmi.byte_from_percent(100) == 255
     assert wmi.byte_from_percent(30) == 77
     assert wmi.byte_from_percent(0) == 0
 
 
-def test_set_zone_color_applies_calibration(helper):
-    assert wmi.set_zone_color(2, 0xFF0000, 80) is None
-    assert helper.calls == [["kbd-color", "2", str(0xCC0000)]]
+def test_set_keyboard_color(helper):
+    assert wmi.set_keyboard_color(0xFF0000) is None
+    assert helper.calls == [["kbd-color", str(0xFF0000)]]
+
+
+def test_events_on(helper):
+    assert wmi.events_on() is None
+    assert helper.calls == [["events-on"]]
+
+
+def test_get_event(helper):
+    helper.replies["event-get"] = ("0x82\n", None)
+    assert wmi.get_event() == 0x82
+
+
+def test_get_event_error_or_garbage_is_none(helper):
+    helper.replies["event-get"] = (None, "boom")
+    assert wmi.get_event() is None
+    helper.replies["event-get"] = ("nonsense\n", None)
+    assert wmi.get_event() is None
 
 
 def test_setters_build_expected_argv(helper):

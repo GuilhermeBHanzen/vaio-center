@@ -4,14 +4,12 @@ import json
 import os
 from pathlib import Path
 
+FAN_MODES = ("quiet", "normal", "aggressive", "manual", "max")
+
 DEFAULTS = {
-    "keyboard": {
-        "zones": [0x0000C8, 0x0000C8, 0x0000C8],
-        "brightness": 255,
-        "calibration": [100, 100, 100],
-    },
+    "keyboard": {"color": 0x0000C8},
     "profile": None,
-    "fan": {"duty_pct": 50},
+    "fan": {"mode": "normal", "duty_pct": 50, "rev": 0},
     "charge": {"enabled": False, "stop": 80, "start": 75},
 }
 
@@ -19,6 +17,19 @@ DEFAULTS = {
 def state_path():
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return Path(base) / "vaio-center" / "state.json"
+
+
+def _migrate(saved):
+    """Map v1 files (per-zone colors, no fan mode) onto the v1.1 schema."""
+    keyboard = saved.get("keyboard")
+    if isinstance(keyboard, dict) and "color" not in keyboard:
+        zones = keyboard.get("zones")
+        if isinstance(zones, list) and zones and isinstance(zones[0], int):
+            keyboard["color"] = zones[0]
+    fan = saved.get("fan")
+    if isinstance(fan, dict) and fan.get("mode") not in FAN_MODES:
+        fan["mode"] = "normal"
+    return saved
 
 
 def _merge(defaults, saved):
@@ -41,6 +52,7 @@ def load(path=None):
         return copy.deepcopy(DEFAULTS)
     if not isinstance(saved, dict):
         return copy.deepcopy(DEFAULTS)
+    saved = _migrate(saved)
     return _merge(DEFAULTS, saved)
 
 

@@ -1,91 +1,63 @@
-"""Keyboard backlight page: 3 RGB zones, brightness and per-zone calibration."""
+"""Keyboard backlight page: one color (the keyboard is single-zone) and brightness."""
 from gi.repository import Adw, Gtk
 
-from vaio_center.backend import wmi
+from vaio_center.backend import kbdlevel, wmi
 from vaio_center.ui import Debouncer, Page, int_from_rgba, rgba_from_int, slider
 
-ZONES = ("Esquerda", "Meio", "Direita")
+
+def _percent(level):
+    return round(level * 100 / 255)
 
 
 class KeyboardPage(Page):
     key = "keyboard"
     title = "Teclado"
 
-    def __init__(self, app, backend=wmi):
+    def __init__(self, app, backend=wmi, levels=kbdlevel):
         super().__init__(app)
         self.backend = backend
-        keyboard = app.state["keyboard"]
+        self.levels = levels
 
-        colors = self.group("Cor por zona")
-        self.buttons = []
-        for zone, name in enumerate(ZONES):
-            button = self._color_button(keyboard["zones"][zone])
-            button.connect("notify::rgba", self._on_zone_color, zone)
-            self._add_row(colors, name, button)
-            self.buttons.append(button)
-        self.all_button = self._color_button(keyboard["zones"][0])
-        self.all_button.connect("notify::rgba", self._on_all_color)
-        self._add_row(colors, "Todas as zonas", self.all_button)
-
-        light = self.group("Brilho do teclado")
-        self.level = slider(0, 100)
-        self.level.set_value(round(keyboard["brightness"] * 100 / 255))
-        self._apply_level = Debouncer(150, self._send_level)
-        self.level.connect("value-changed", lambda scale: self._apply_level(int(scale.get_value())))
-        self._add_row(light, "Brilho (%)", self.level)
-
-        calibration = self.group(
-            "Calibração",
-            "A mesma cor pode sair mais forte numa zona (neste teclado, a direita). "
-            "Reduza a zona mais forte até as três parecerem iguais.",
-        )
-        self._apply_calibration = Debouncer(200, self._send_all_zones)
-        for zone, name in enumerate(ZONES):
-            spin = Adw.SpinRow.new_with_range(50, 100, 1)
-            spin.set_title(f"{name} (%)")
-            spin.set_value(keyboard["calibration"][zone])
-            spin.connect("notify::value", self._on_calibration, zone)
-            calibration.add(spin)
-
-    @staticmethod
-    def _color_button(rgb):
+        colors = self.group("Cor", "O teclado tem uma zona só: a cor vale para o teclado todo.")
         dialog = Gtk.ColorDialog()
         dialog.set_with_alpha(False)
-        button = Gtk.ColorDialogButton(dialog=dialog, valign=Gtk.Align.CENTER)
-        button.set_rgba(rgba_from_int(rgb))
-        return button
+        self.color = Gtk.ColorDialogButton(dialog=dialog, valign=Gtk.Align.CENTER)
+        self.color.set_rgba(rgba_from_int(app.state["keyboard"]["color"]))
+        self.color.connect("notify::rgba", self._on_color)
+        row = Adw.ActionRow(title="Cor do teclado")
+        row.add_suffix(self.color)
+        colors.add(row)
 
-    @staticmethod
-    def _add_row(group, title, widget):
-        row = Adw.ActionRow(title=title)
-        row.add_suffix(widget)
-        group.add(row)
+        light = self.group("Brilho do teclado", "As teclas de brilho do teclado também mudam este valor.")
+        self.level = slider(0, 100)
+        with self.syncing():
+            self.level.set_value(_percent(levels.load()))
+        self._apply_level = Debouncer(150, self._send_level)
+        self.level.connect("value-changed", self._on_level)
+        row = Adw.ActionRow(title="Brilho (%)")
+        row.add_suffix(self.level)
+        light.add(row)
 
-    def _send_zone(self, zone):
-        keyboard = self.app.state["keyboard"]
-        return self.backend.set_zone_color(zone, keyboard["zones"][zone], keyboard["calibration"][zone])
+    def refresh(self):
+        # The daemon changes the level when the Fn keys are pressed; follow it.
+        with self.syncing():
+            self.level.set_value(_percent(self.levels.load()))
 
-    def _on_zone_color(self, button, _pspec, zone):
-        self.app.state["keyboard"]["zones"][zone] = int_from_rgba(button.get_rgba())
-        if not self.report(self._send_zone(zone)):
+    def _on_color(self, button, _pspec):
+        rgb = int_from_rgba(button.get_rgba())
+        error = self.backend.set_keyboard_color(rgb)
+        self.report(error)
+        if error is None:
+            self.app.state["keyboard"]["color"] = rgb
             self.app.save_state()
 
-    def _on_all_color(self, button, _pspec):
-        # Each zone button's notify::rgba handler sends its own (calibrated) color.
-        for zone_button in self.buttons:
-            zone_button.set_rgba(button.get_rgba())
-
-    def _on_calibration(self, spin, _pspec, zone):
-        self.app.state["keyboard"]["calibration"][zone] = int(spin.get_value())
-        self._apply_calibration()
-
-    def _send_all_zones(self):
-        errors = [error for error in (self._send_zone(zone) for zone in range(len(ZONES))) if error]
-        if not self.report(errors[0] if errors else None):
-            self.app.save_state()
+    def _on_level(self, scale):
+        if not self.is_syncing:
+            self._apply_level(int(scale.get_value()))
 
     def _send_level(self, percent):
         level = self.backend.byte_from_percent(percent)
-        self.app.state["keyboard"]["brightness"] = level
-        if not self.report(self.backend.set_keyboard_brightness(level)):
-            self.app.save_state()
+        error = self.backend.set_keyboard_brightness(level)
+        self.report(error)
+        if error is None:
+            self.levels.save(level)

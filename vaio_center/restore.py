@@ -3,17 +3,16 @@
 Fans are never restored: a fixed duty without the app running would be unsafe, so
 restore first forces them back to auto in case a duty survived an app crash.
 """
+from vaio_center.backend import kbdlevel
 from vaio_center.backend import wmi as wmi_backend
 
 
-def restore(data, wmi=wmi_backend):
-    keyboard = data["keyboard"]
-    calls = [(wmi.set_fan_auto,)]
-    calls += [
-        (wmi.set_zone_color, zone, rgb, calibration)
-        for zone, (rgb, calibration) in enumerate(zip(keyboard["zones"], keyboard["calibration"]))
+def restore(data, wmi=wmi_backend, kbd=kbdlevel):
+    calls = [
+        (wmi.set_fan_auto,),
+        (wmi.set_keyboard_color, data["keyboard"]["color"]),
+        (wmi.set_keyboard_brightness, kbd.load()),
     ]
-    calls.append((wmi.set_keyboard_brightness, keyboard["brightness"]))
     if data["profile"] is not None:
         calls.append((wmi.set_profile, data["profile"]))
     charge = data["charge"]
