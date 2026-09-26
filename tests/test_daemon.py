@@ -145,6 +145,20 @@ def test_fan_tick_forced_when_temps_unreadable(tmp_path):
     assert d.status_store.written[-1] == {"mode": "normal", "forced": True, "target": AUTO}
 
 
+def test_fan_tick_exception_forces_auto_and_keeps_ticking(tmp_path):
+    class RaisingTemps:
+        def cpu_temp_c(self):
+            raise RuntimeError("boom")
+
+    wmi = FakeWmi()
+    d = make(tmp_path, wmi=wmi)
+    d.sensors = RaisingTemps()
+    result = d.fan_tick()
+    assert result == daemon.GLib.SOURCE_CONTINUE
+    assert ("set_fan_auto",) in wmi.calls
+    assert d.sent is None
+
+
 def test_manual_and_max_are_not_restored_at_start(tmp_path):
     d = make(tmp_path, fan={"mode": "max", "duty_pct": 50, "rev": 3})
     d.load_config(initial=True)
@@ -182,3 +196,13 @@ def test_sleep_hands_fans_to_ec_and_resume_reenables_events(tmp_path):
     d.on_sleep(False)
     assert ("events_on",) in wmi.calls
     assert d.sent is None
+
+
+def test_resume_events_on_failure_is_retried_by_config_tick(tmp_path):
+    wmi = FakeWmi(error="boom")
+    d = make(tmp_path, wmi=wmi)
+    d.on_sleep(False)
+    assert d._events_pending is True
+    wmi.error = None
+    d._config_tick()
+    assert d._events_pending is False

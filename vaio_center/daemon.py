@@ -8,6 +8,7 @@ import signal
 import socket
 import sys
 import time
+import traceback
 
 import gi
 
@@ -90,6 +91,7 @@ class Daemon:
         self._fan_key = None
         self._sock = None
         self._buf = ""
+        self._events_pending = False
         self.loop = None
 
     def handle_line(self, line):
@@ -125,31 +127,48 @@ class Daemon:
         self._fan_key = key
 
     def fan_tick(self):
-        target = self.policy.target(self.sensors.cpu_temp_c())
-        if target != self.sent:
-            if target == AUTO:
-                error = self.wmi.set_fan_auto()
-            else:
-                duty = byte_from_percent(target)
-                error = self.wmi.set_fan_duty(duty, duty)
-            self.sent = target if error is None else None
-        forced = self.policy.forced or self.policy.misses >= MAX_MISSES
-        self.status_store.write({
-            "mode": "normal" if forced else self.policy.mode,
-            "forced": forced,
-            "target": self.sent,
-        })
+        try:
+            target = self.policy.target(self.sensors.cpu_temp_c())
+            if target != self.sent:
+                if target == AUTO:
+                    error = self.wmi.set_fan_auto()
+                else:
+                    duty = byte_from_percent(target)
+                    error = self.wmi.set_fan_duty(duty, duty)
+                self.sent = target if error is None else None
+            forced = self.policy.forced or self.policy.misses >= MAX_MISSES
+            self.status_store.write({
+                "mode": "normal" if forced else self.policy.mode,
+                "forced": forced,
+                "target": self.sent,
+            })
+        except Exception:
+            print("vaio-center: fan_tick failed, forcing fans to auto", file=sys.stderr)
+            traceback.print_exc()
+            self.wmi.set_fan_auto()
+            self.sent = None
         return GLib.SOURCE_CONTINUE
 
     def on_sleep(self, going_down):
         if going_down:
-            self.wmi.set_fan_auto()
+            error = self.wmi.set_fan_auto()
+            if error:
+                print(f"vaio-center: {error}", file=sys.stderr)
             self.sent = AUTO
         else:
-            self.wmi.events_on()
+            error = self.wmi.events_on()
+            if error:
+                print(f"vaio-center: {error}", file=sys.stderr)
+            self._events_pending = bool(error)
             self.sent = None  # re-apply the mode on the next tick
 
     def _config_tick(self):
+        if self._events_pending:
+            error = self.wmi.events_on()
+            if error:
+                print(f"vaio-center: {error}", file=sys.stderr)
+            else:
+                self._events_pending = False
         self.load_config()
         return GLib.SOURCE_CONTINUE
 
@@ -160,6 +179,7 @@ class Daemon:
         except OSError:
             GLib.timeout_add_seconds(RECONNECT_S, self._reconnect)
             return
+        sock.setblocking(False)
         self._sock, self._buf = sock, ""
         GLib.io_add_watch(sock.fileno(), GLib.PRIORITY_DEFAULT,
                           GLib.IOCondition.IN | GLib.IOCondition.HUP | GLib.IOCondition.ERR,
@@ -170,27 +190,35 @@ class Daemon:
         return GLib.SOURCE_REMOVE
 
     def _on_socket(self, _fd, condition):
-        data = b""
-        if condition & GLib.IOCondition.IN:
-            try:
-                data = self._sock.recv(4096)
-            except OSError:
-                data = b""
-        if not data:  # acpid went away: retry later
-            self._sock.close()
-            self._sock = None
-            GLib.timeout_add_seconds(RECONNECT_S, self._reconnect)
-            return GLib.SOURCE_REMOVE
-        self._buf += data.decode(errors="replace")
-        *lines, self._buf = self._buf.split("\n")
-        for line in lines:
-            self.handle_line(line)
-        return GLib.SOURCE_CONTINUE
+        try:
+            data = b""
+            if condition & GLib.IOCondition.IN:
+                try:
+                    data = self._sock.recv(4096)
+                except BlockingIOError:
+                    return GLib.SOURCE_CONTINUE  # no data yet, not a disconnect
+                except OSError:
+                    data = b""
+            if not data:  # acpid went away: retry later
+                self._sock.close()
+                self._sock = None
+                GLib.timeout_add_seconds(RECONNECT_S, self._reconnect)
+                return GLib.SOURCE_REMOVE
+            self._buf += data.decode(errors="replace")
+            *lines, self._buf = self._buf.split("\n")
+            for line in lines:
+                self.handle_line(line)
+            return GLib.SOURCE_CONTINUE
+        except Exception:
+            print("vaio-center: acpid socket handler failed", file=sys.stderr)
+            traceback.print_exc()
+            return GLib.SOURCE_CONTINUE
 
     def _watch_sleep(self):
         try:
             bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-        except GLib.Error:
+        except GLib.Error as exc:
+            print(f"vaio-center: {exc}", file=sys.stderr)
             return
         bus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Manager",
                              "PrepareForSleep", "/org/freedesktop/login1", None,
@@ -198,14 +226,19 @@ class Daemon:
                              lambda *args: self.on_sleep(args[5].unpack()[0]))
 
     def _on_signal(self):
-        self.wmi.set_fan_auto()
+        error = self.wmi.set_fan_auto()
+        if error:
+            print(f"vaio-center: {error}", file=sys.stderr)
         self.loop.quit()
         return GLib.SOURCE_REMOVE
 
     def run(self):
         for error in restore.restore(self.store.load(), self.wmi, self.kbd):
             print(f"vaio-center: {error}", file=sys.stderr)
-        self.wmi.events_on()
+        error = self.wmi.events_on()
+        if error:
+            print(f"vaio-center: {error}", file=sys.stderr)
+            self._events_pending = True
         self.load_config(initial=True)
         self.loop = GLib.MainLoop()
         self._connect()
