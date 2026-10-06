@@ -37,6 +37,7 @@ class FanPolicy:
         self.forced = False
         self.misses = 0
         self._quiet_handoff = False
+        self._last = AUTO  # a switch starts fresh: no hysteresis against the old mode's duty
 
     def target(self, temp):
         """AUTO, or the duty percent the fans should run at."""

@@ -10,16 +10,19 @@ PRESETS = (
     ("Carga completa", False, 80, 75),
 )
 CUSTOM = "Personalizado"
+BIOS_LABEL = "Definido na BIOS"
 
 
-def preset_index(enabled, stop, start):
-    """Which preset the current values match; len(PRESETS) means custom."""
+def preset_index(source, enabled, stop, start):
+    """Combo position: 0 is the BIOS profile, then the presets, then custom."""
+    if source == "bios":
+        return 0
     for index, (_label, preset_enabled, preset_stop, preset_start) in enumerate(PRESETS):
         if not enabled and not preset_enabled:
-            return index
+            return 1 + index
         if enabled and preset_enabled and (stop, start) == (preset_stop, preset_start):
-            return index
-    return len(PRESETS)
+            return 1 + index
+    return 1 + len(PRESETS)
 
 
 class PerformancePage(Page):
@@ -31,6 +34,7 @@ class PerformancePage(Page):
         self.backend = backend
         self.codes = list(backend.PROFILE_LABELS)
         self._charge_loaded = False
+        self._ec_charge = None  # last limit read back from the firmware
 
         profile = self.group(
             "Perfil do firmware",
@@ -41,10 +45,14 @@ class PerformancePage(Page):
         self.combo.connect("notify::selected", self._on_profile)
         profile.add(self.combo)
 
-        charge = self.group("Limite de carga", "Máxima vida útil (60%) é a melhor para quem fica sempre na tomada.")
+        charge = self.group(
+            "Limite de carga",
+            "Definido na BIOS: o app só mostra o limite do firmware e não o altera — para mudar, use a BIOS "
+            "ou escolha outro perfil. Máxima vida útil (60%) é a melhor para quem fica sempre na tomada.",
+        )
         self.preset = Adw.ComboRow(
             title="Perfil de carga",
-            model=Gtk.StringList.new([p[0] for p in PRESETS] + [CUSTOM]),
+            model=Gtk.StringList.new([BIOS_LABEL] + [p[0] for p in PRESETS] + [CUSTOM]),
         )
         charge.add(self.preset)
         self.enabled = Adw.SwitchRow(title="Limitar carga")
@@ -73,15 +81,30 @@ class PerformancePage(Page):
             self._charge_loaded = True
             return
         self._charge_loaded = True
+        self._ec_charge = charge
         with self.syncing():
             self._show_charge(charge)
 
-    def _show_charge(self, charge):
+    def _show_charge(self, charge, source=None):
+        """Fill the charge rows; BIOS mode makes them a read-only view of the firmware."""
+        source = source or self.app.state["charge"].get("source", "bios")
         self.enabled.set_active(charge.get("enabled", False))
         self.stop.set_value(charge.get("stop", 80))
         self.start.set_value(charge.get("start", 75))
         self.preset.set_selected(preset_index(
-            self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
+            source, self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
+        self._set_rows_sensitive(source != "bios")
+
+    def _set_rows_sensitive(self, sensitive):
+        for row in (self.enabled, self.stop, self.start):
+            row.set_sensitive(sensitive)
+
+    def _revert_charge(self):
+        """Failed or cancelled write: show what the firmware / the last applied values hold."""
+        stored = self.app.state["charge"]
+        bios = stored.get("source", "bios") == "bios"
+        with self.syncing():
+            self._show_charge(self._ec_charge if bios and self._ec_charge else stored)
 
     def _show_profile(self, code):
         self.combo.set_selected(self.codes.index(code) if code in self.codes else Gtk.INVALID_LIST_POSITION)
@@ -108,9 +131,20 @@ class PerformancePage(Page):
 
     def _on_preset(self, combo, _pspec):
         index = combo.get_selected()
-        if self.is_syncing or index >= len(PRESETS):
-            return  # "Personalizado": the user edits the values below
-        _label, enabled, stop, start = PRESETS[index]
+        if self.is_syncing or index == Gtk.INVALID_LIST_POSITION:
+            return
+        if index == 0:  # BIOS: only display the firmware's limit, never write
+            self.app.state["charge"]["source"] = "bios"
+            self.app.save_state()
+            with self.syncing():
+                self._set_rows_sensitive(False)
+            self._charge_loaded = False
+            self.refresh()
+            return
+        self._set_rows_sensitive(True)
+        if index > len(PRESETS):
+            return  # "Personalizado": nothing is written until the user edits a value
+        _label, enabled, stop, start = PRESETS[index - 1]
         with self.syncing():
             self.enabled.set_active(enabled)
             self.stop.set_value(stop)
@@ -122,10 +156,12 @@ class PerformancePage(Page):
             return
         with self.syncing():
             self.preset.set_selected(preset_index(
-                self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
+                "app", self.enabled.get_active(), int(self.stop.get_value()), int(self.start.get_value())))
         self._apply_charge()
 
     def _send_charge(self):
+        if self.preset.get_selected() == 0:  # switched back to the BIOS while this write was pending
+            return
         enabled = self.enabled.get_active()
         stop = int(self.stop.get_value())
         start = int(self.start.get_value())
@@ -135,8 +171,7 @@ class PerformancePage(Page):
         error = self.backend.set_charge_limit(stop, start) if enabled else self.backend.disable_charge_limit()
         self.report(error)
         if error is None:
-            self.app.state["charge"] = {"enabled": enabled, "stop": stop, "start": start}
+            self.app.state["charge"] = {"source": "app", "enabled": enabled, "stop": stop, "start": start}
             self.app.save_state()
-        else:  # failed or cancelled: show the last applied values
-            with self.syncing():
-                self._show_charge(self.app.state["charge"])
+        else:
+            self._revert_charge()

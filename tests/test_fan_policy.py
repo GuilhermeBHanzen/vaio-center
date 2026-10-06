@@ -59,3 +59,10 @@ def test_aggressive_hysteresis_delays_step_down():
 def test_unknown_mode_rejected():
     with pytest.raises(ValueError):
         FanPolicy("turbo")
+
+
+def test_mode_switch_starts_fresh_for_aggressive():
+    policy = FanPolicy("max")
+    assert policy.target(70) == 100
+    policy.set_mode("aggressive")
+    assert policy.target(66) == 95  # not held at the stale 100 from max

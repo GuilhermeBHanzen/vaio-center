@@ -5,12 +5,13 @@ import os
 from pathlib import Path
 
 FAN_MODES = ("quiet", "normal", "aggressive", "manual", "max")
+CHARGE_SOURCES = ("bios", "app")  # who owns the charge limit: the firmware, or this app
 
 DEFAULTS = {
     "keyboard": {"color": 0x0000C8},
     "profile": None,
     "fan": {"mode": "normal", "duty_pct": 50, "rev": 0},
-    "charge": {"enabled": False, "stop": 80, "start": 75},
+    "charge": {"source": "bios", "enabled": False, "stop": 80, "start": 75},
 }
 
 
@@ -29,6 +30,9 @@ def _migrate(saved):
     fan = saved.get("fan")
     if isinstance(fan, dict) and fan.get("mode") not in FAN_MODES:
         fan["mode"] = "normal"
+    charge = saved.get("charge")
+    if isinstance(charge, dict) and charge.get("source") not in CHARGE_SOURCES:
+        charge["source"] = "bios"
     return saved
 
 

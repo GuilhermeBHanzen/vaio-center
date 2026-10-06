@@ -18,10 +18,12 @@ def restore(data, wmi=wmi_backend, kbd=kbdlevel):
     if data["profile"] is not None:
         calls.append((wmi.set_profile, data["profile"]))
     charge = data["charge"]
-    if charge["enabled"]:
-        calls.append((wmi.set_charge_limit, charge["stop"], charge["start"]))
-    else:
-        calls.append((wmi.disable_charge_limit,))
+    # In BIOS mode the firmware owns the charge limit: the app never writes it.
+    if charge.get("source") != "bios":
+        if charge["enabled"]:
+            calls.append((wmi.set_charge_limit, charge["stop"], charge["start"]))
+        else:
+            calls.append((wmi.disable_charge_limit,))
     errors = []
     for func, *args in calls:
         # A bad saved value (ValueError) must not stop the remaining settings.

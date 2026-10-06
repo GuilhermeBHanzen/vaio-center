@@ -14,7 +14,7 @@ def test_round_trip(tmp_path):
     path = tmp_path / "nested" / "state.json"
     data = state.load(path)
     data["profile"] = 5
-    data["charge"] = {"enabled": True, "stop": 80, "start": 75}
+    data["charge"] = {"source": "app", "enabled": True, "stop": 80, "start": 75}
     state.save(data, path)
     assert state.load(path) == data
     assert not path.with_suffix(".tmp").exists()
@@ -36,7 +36,7 @@ def test_partial_file_is_merged_with_defaults_and_unknown_keys_dropped(tmp_path)
     path = tmp_path / "state.json"
     path.write_text(json.dumps({"charge": {"stop": 90}, "bogus": 1}))
     loaded = state.load(path)
-    assert loaded["charge"] == {"enabled": False, "stop": 90, "start": 75}
+    assert loaded["charge"] == {"source": "bios", "enabled": False, "stop": 90, "start": 75}
     assert loaded["keyboard"] == {"color": 0x0000C8}
     assert "bogus" not in loaded
 
@@ -61,3 +61,20 @@ def test_unknown_fan_mode_becomes_normal(tmp_path):
     path = tmp_path / "state.json"
     path.write_text(json.dumps({"fan": {"mode": "turbo"}}))
     assert state.load(path)["fan"]["mode"] == "normal"
+
+
+def test_charge_source_defaults_to_bios(tmp_path):
+    assert state.DEFAULTS["charge"]["source"] == "bios"
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"fan": {"duty_pct": 31}}))  # v1 file without charge
+    assert state.load(path)["charge"]["source"] == "bios"
+    path.write_text(json.dumps({"charge": {"enabled": True, "stop": 60, "start": 55}}))
+    assert state.load(path)["charge"] == {"source": "bios", "enabled": True, "stop": 60, "start": 55}
+
+
+def test_invalid_charge_source_becomes_bios(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"charge": {"source": "firmware", "stop": 70}}))
+    assert state.load(path)["charge"]["source"] == "bios"
+    path.write_text(json.dumps({"charge": {"source": "app", "stop": 70}}))
+    assert state.load(path)["charge"]["source"] == "app"
