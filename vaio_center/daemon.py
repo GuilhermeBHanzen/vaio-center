@@ -38,6 +38,9 @@ CONFIG_TICK_S = 1
 RECONNECT_S = 5
 EVENTS_BACKOFF_START_S = 5
 EVENTS_BACKOFF_MAX_S = 300
+RESTORE_RETRY_START_S = 5
+RESTORE_RETRY_MAX_S = 60
+RESTORE_MAX_ATTEMPTS = 10
 
 
 def is_hotkey_line(line):
@@ -100,6 +103,9 @@ class Daemon:
         self._events_retry_at = 0.0
         self._events_failed_logged = False
         self._events_outdated = False
+        self._restore_attempts = 0
+        self._restore_delay = RESTORE_RETRY_START_S
+        self._schedule = GLib.timeout_add_seconds
         self.loop = None
 
     def handle_line(self, line, at=None):
@@ -296,9 +302,34 @@ class Daemon:
         self.loop.quit()
         return GLib.SOURCE_REMOVE
 
+    def _restore_attempt(self):
+        """Restore the saved EC settings; retry with backoff while polkit refuses.
+
+        At boot the user unit starts before the login session is active, so pkexec
+        is denied until later. Retries stop on success or after RESTORE_MAX_ATTEMPTS.
+        """
+        self._restore_attempts += 1
+        errors = restore.restore(self.store.load(), self.wmi, self.kbd)
+        if not errors:
+            if self._restore_attempts > 1:
+                # Hotkeys need events_on too, and its backoff may still be waiting.
+                self._reset_events_backoff()
+                self._events_on()
+            return GLib.SOURCE_REMOVE
+        giving_up = self._restore_attempts >= RESTORE_MAX_ATTEMPTS
+        if self._restore_attempts == 1 or giving_up:
+            for error in errors:
+                print(f"vaio-center: {error}", file=sys.stderr)
+        if giving_up:
+            print(f"vaio-center: restore failed {self._restore_attempts} times, giving up",
+                  file=sys.stderr)
+        else:
+            self._schedule(self._restore_delay, self._restore_attempt)
+            self._restore_delay = min(self._restore_delay * 2, RESTORE_RETRY_MAX_S)
+        return GLib.SOURCE_REMOVE
+
     def run(self):
-        for error in restore.restore(self.store.load(), self.wmi, self.kbd):
-            print(f"vaio-center: {error}", file=sys.stderr)
+        self._restore_attempt()
         self._reset_events_backoff()
         self._events_on()
         self.load_config(initial=True)

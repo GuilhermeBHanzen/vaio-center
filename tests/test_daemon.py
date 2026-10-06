@@ -60,7 +60,12 @@ class FakeStore:
         return self.path
 
     def load(self):
-        return {"fan": dict(self.fan)}
+        return {
+            "fan": dict(self.fan),
+            "keyboard": {"color": "#ffffff"},
+            "profile": None,
+            "charge": {"enabled": False, "stop": 80, "start": 70},
+        }
 
 
 class FakeClock:
@@ -404,3 +409,72 @@ def test_on_socket_stamps_lines_with_arrival_clock(tmp_path):
     d._sock = FakeSocket(f"{LINE}\n".encode())
     d._on_socket(0, daemon.GLib.IOCondition.IN)
     assert stamped == [(LINE, 42.0)]
+
+
+def make_restore(tmp_path, error="Sem autorizacao do polkit"):
+    wmi = FakeWmi(error=error)
+    d = make(tmp_path, wmi=wmi)
+    scheduled = []
+    d._schedule = lambda delay, func: scheduled.append((delay, func))
+    return d, wmi, scheduled
+
+
+def test_restore_retry_delays_double_up_to_cap(tmp_path):
+    d, _wmi, scheduled = make_restore(tmp_path)
+    for _ in range(9):
+        assert d._restore_attempt() == daemon.GLib.SOURCE_REMOVE
+    assert [delay for delay, _func in scheduled] == [5, 10, 20, 40, 60, 60, 60, 60, 60]
+    assert all(func == d._restore_attempt for _delay, func in scheduled)
+
+
+def test_restore_success_stops_retrying_and_retries_events(tmp_path):
+    d, wmi, scheduled = make_restore(tmp_path)
+    d._restore_attempt()
+    assert len(scheduled) == 1
+    wmi.error = None
+    d._events_backoff, d._events_retry_at = 300, 999.0  # events_on backoff still waiting
+    wmi.calls.clear()
+    assert d._restore_attempt() == daemon.GLib.SOURCE_REMOVE
+    assert len(scheduled) == 1  # no further retry
+    assert ("set_keyboard_color", "#ffffff") in wmi.calls
+    assert ("events_on",) in wmi.calls
+    assert d._events_pending is False
+    assert d._events_backoff == daemon.EVENTS_BACKOFF_START_S
+
+
+def test_restore_first_try_success_schedules_nothing_and_stays_quiet(tmp_path, capsys):
+    d, wmi, scheduled = make_restore(tmp_path, error=None)
+    assert d._restore_attempt() == daemon.GLib.SOURCE_REMOVE
+    assert scheduled == []
+    assert ("events_on",) not in wmi.calls  # run() does the first events_on itself
+    assert capsys.readouterr().err == ""
+
+
+def test_restore_gives_up_after_10_attempts(tmp_path):
+    d, _wmi, scheduled = make_restore(tmp_path)
+    for _ in range(10):
+        d._restore_attempt()
+    assert len(scheduled) == 9  # the 10th attempt is the last: no 11th scheduled
+    assert d._restore_attempts == 10
+
+
+def test_restore_logs_only_first_attempt_and_give_up(tmp_path, capsys):
+    d, _wmi, _scheduled = make_restore(tmp_path)
+    d._restore_attempt()
+    assert "polkit" in capsys.readouterr().err
+    for _ in range(8):  # attempts 2..9
+        d._restore_attempt()
+    assert capsys.readouterr().err == ""
+    d._restore_attempt()  # attempt 10: gives up
+    err = capsys.readouterr().err
+    assert "polkit" in err
+    assert "giving up" in err
+
+
+def test_resume_does_not_rerun_restore(tmp_path):
+    d, wmi, scheduled = make_restore(tmp_path, error=None)
+    d.on_sleep(True)
+    wmi.calls.clear()
+    d.on_sleep(False)
+    assert ("set_keyboard_color", "#ffffff") not in wmi.calls
+    assert scheduled == []
