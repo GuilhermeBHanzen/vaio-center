@@ -310,8 +310,11 @@ class Daemon:
         """
         self._restore_attempts += 1
         errors = restore.restore(self.store.load(), self.wmi, self.kbd)
+        self.sent = None  # restore forced the fans to auto: re-apply the mode on the next tick
         if not errors:
             if self._restore_attempts > 1:
+                print(f"vaio-center: settings restored after {self._restore_attempts} attempts",
+                      file=sys.stderr)
                 # Hotkeys need events_on too, and its backoff may still be waiting.
                 self._reset_events_backoff()
                 self._events_on()

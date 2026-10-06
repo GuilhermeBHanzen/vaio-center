@@ -421,10 +421,14 @@ def make_restore(tmp_path, error="Sem autorizacao do polkit"):
 
 def test_restore_retry_delays_double_up_to_cap(tmp_path):
     d, _wmi, scheduled = make_restore(tmp_path)
-    for _ in range(9):
-        assert d._restore_attempt() == daemon.GLib.SOURCE_REMOVE
-    assert [delay for delay, _func in scheduled] == [5, 10, 20, 40, 60, 60, 60, 60, 60]
-    assert all(func == d._restore_attempt for _delay, func in scheduled)
+    assert d._restore_attempt() == daemon.GLib.SOURCE_REMOVE
+    delays = []
+    while scheduled:
+        delay, callback = scheduled.pop(0)
+        delays.append(delay)
+        assert callback() == daemon.GLib.SOURCE_REMOVE
+    assert delays == [5, 10, 20, 40, 60, 60, 60, 60, 60]
+    assert d._restore_attempts == 10
 
 
 def test_restore_success_stops_retrying_and_retries_events(tmp_path):
@@ -478,3 +482,26 @@ def test_resume_does_not_rerun_restore(tmp_path):
     d.on_sleep(False)
     assert ("set_keyboard_color", "#ffffff") not in wmi.calls
     assert scheduled == []
+
+
+def test_restore_resets_sent_so_fan_tick_reapplies(tmp_path):
+    d, _wmi, _scheduled = make_restore(tmp_path, error=None)
+    d.sent = 40
+    d._restore_attempt()
+    assert d.sent is None
+
+
+def test_restore_resets_sent_on_failure_too(tmp_path):
+    d, _wmi, _scheduled = make_restore(tmp_path)
+    d.sent = 40
+    d._restore_attempt()
+    assert d.sent is None
+
+
+def test_restore_logs_success_after_retry(tmp_path, capsys):
+    d, wmi, _scheduled = make_restore(tmp_path)
+    d._restore_attempt()
+    capsys.readouterr()
+    wmi.error = None
+    d._restore_attempt()
+    assert "settings restored after 2 attempts" in capsys.readouterr().err
