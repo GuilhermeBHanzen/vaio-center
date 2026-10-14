@@ -46,7 +46,7 @@ These were found by reverse-engineering the ACPI tables (DSDT/SSDT) and the Wind
 ## Install
 
 ```sh
-git clone https://github.com/gladiusdei/vaio-center
+git clone https://github.com/GuilhermeBHanzen/vaio-center
 cd vaio-center
 sudo ./install-root.sh   # root helper, polkit policy, acpi_call module autoload, acpid
 ./install.sh             # app + launcher + desktop entry + waybar icon + user daemon
